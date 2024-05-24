@@ -3,8 +3,8 @@
 #include <stdlib.h>
 #include <string.h>
 #include <fcntl.h>
-#include <sys/_types/_mode_t.h>
 #include <sys/fcntl.h>
+#include <sys/syslog.h>
 #include <unistd.h>
 #include <sys/types.h>
 #include <sys/socket.h>
@@ -13,6 +13,7 @@
 #include "parse_args.h"
 #include "read_dir.h"
 #include <errno.h>
+#include <copyfile.h>
 
 #define PATH_MAX 300
 #define CURRENT_DIRECTORY "."
@@ -36,13 +37,6 @@ int get_file_or_directory_info(char* path, struct FileOrDirectoryInfo* info) {
   info->size_in_bytes = st.st_size;
 
   return 1;
-}
-
-void prepend(char* s, const char* t)
-{
-    size_t len = strlen(t);
-    memmove(s + len, s, strlen(s) + 1);
-    memcpy(s, t, len);
 }
 
 int mkdir_p(const char *path) {
@@ -70,7 +64,7 @@ int mkdir_p(const char *path) {
     return 0;
 }
 
-int open_file_in_nested_dir(const char *path, int flags) {
+int open_file_in_nested_dir(char *path, int flags) {
     char *dir_path = strdup(path);
     if (!dir_path) {
         perror("strdup");
@@ -95,25 +89,14 @@ void write_dir(char* source_base, char* dest_base, struct PathInfo* current_path
   struct PathInfo* current = current_path_info;
 
   while(current!=NULL) {
-    char* dest_path = strdup(current->path);
-    dest_path += strlen(source_base);
-
-    prepend(dest_path, dest_base);
-    printf("CURRENT PATH: %s\n",  strdup(current->path));
-    printf("CURRENT PATH DEST: %s\n", dest_path);
-
     int source = open_file_in_nested_dir(strdup(current->path), O_RDONLY);
+    int dest = open_file_in_nested_dir(strdup(current->dest_path), O_WRONLY | O_CREAT);
+    chmod(current->dest_path, 0x777);
 
-    int dest = open_file_in_nested_dir(dest_path, O_WRONLY | O_CREAT);
-    chmod(dest_path, 0x777);
-
-    off_t* bytes_to_send = (off_t*) current->info->size_in_bytes;
-    off_t offset = 0;
-
-    if (sendfile(source, dest, offset, bytes_to_send, NULL, 0) == -1) {
-        perror("sendfile");
+    // Send file doesn't work on MacOS
+    if (fcopyfile(source, dest, 0, COPYFILE_ALL) == -1) {
+        perror("fcopyfile");
     }
-
 
     close(source);
     close(dest);
@@ -122,10 +105,8 @@ void write_dir(char* source_base, char* dest_base, struct PathInfo* current_path
   }
 }
 
-struct PathInfo* read_dir(char* path, int recursive) {
+struct PathInfo* read_dir(char* path, char* destination_path, int recursive) {
   struct PathInfo* local_path_info = NULL;
-
-  struct dirent* entry;
   char entry_path[PATH_MAX + 1];
   char* dir_path = strdup(path);
   strcpy(entry_path, dir_path);
@@ -137,13 +118,26 @@ struct PathInfo* read_dir(char* path, int recursive) {
       ++path_len;
   }
 
+  char dest_path[PATH_MAX + 1];
+  char* dest_dir_path = strdup(destination_path);
+  strcpy(dest_path, dest_dir_path);
+  size_t dest_path_len = strlen(dest_path);
+
+  if (dest_path[dest_path_len - 1] != '/') {
+      dest_path[dest_path_len] = '/';
+      dest_path[dest_path_len + 1] = '\0';
+      ++dest_path_len;
+  }
+
   DIR* dir = opendir(dir_path);
 
+  struct dirent* entry;
   while ((entry = readdir(dir)) != NULL) {
       char* name = strdup(entry->d_name);
       if (strcmp(name, CURRENT_DIRECTORY) == 0 || strcmp(name, HIGHER_DIRECTORY) == 0) {
         continue;
       }
+      strncpy(dest_path + dest_path_len, entry->d_name, sizeof (dest_path) - dest_path_len);
       strncpy(entry_path + path_len, entry->d_name, sizeof (entry_path) - path_len);
 
       struct FileOrDirectoryInfo* info = (struct FileOrDirectoryInfo*)malloc(sizeof(struct FileOrDirectoryInfo));
@@ -157,6 +151,7 @@ struct PathInfo* read_dir(char* path, int recursive) {
       if (info->type == REGULAR_FILE) {
           struct PathInfo* current_path_info = (struct PathInfo*)malloc(sizeof(struct PathInfo));
           current_path_info->path = strdup(entry_path);
+          current_path_info->dest_path = strdup(dest_path);
           current_path_info->info = info;
           current_path_info->next_path = NULL;
 
@@ -168,7 +163,7 @@ struct PathInfo* read_dir(char* path, int recursive) {
       }
 
       if (recursive == 1 && info->type == DIRECTORY) {
-        struct PathInfo* inner_path_info = read_dir(strdup(entry_path), recursive);
+        struct PathInfo* inner_path_info = read_dir(strdup(entry_path), strdup(dest_path), recursive);
         if (local_path_info == NULL) {
           local_path_info = inner_path_info;
         } else {
@@ -190,11 +185,12 @@ void print_path_info(struct PathInfo *path_info) {
     struct PathInfo *current = path_info;
 
     while (current != NULL) {
-        printf("-------------------------\n");
-        printf("Path: %s\n", current->path);
-        printf("Modified Time: %ld\n", current->info->modified_time);
-        printf("Size in Bytes: %ld\n", current->info->size_in_bytes);
-        printf("-------------------------\n");
+        syslog(LOG_INFO, "-------------------------\n");
+        syslog(LOG_INFO, "Path: %s\n", current->path);
+        syslog(LOG_INFO, "Dest Path: %s\n", current->dest_path);
+        syslog(LOG_INFO, "Modified Time: %ld\n", current->info->modified_time);
+        syslog(LOG_INFO, "Size in Bytes: %ld\n", current->info->size_in_bytes);
+        syslog(LOG_INFO, "-------------------------\n");
         current = current->next_path;
     }
 }
@@ -223,6 +219,7 @@ struct PathInfo* changed_files(struct PathInfo* old_path_info, struct PathInfo* 
           if (old_current->info->modified_time != new_current->info->modified_time || old_current->info->size_in_bytes != new_current->info->size_in_bytes) {
             struct PathInfo* current_path_info = (struct PathInfo*)malloc(sizeof(struct PathInfo));
             current_path_info->path = strdup(new_current->path);
+            current_path_info->dest_path = strdup(new_current->dest_path);
             current_path_info->info = new_current->info;
             current_path_info->next_path = NULL;
 
@@ -259,6 +256,7 @@ struct PathInfo* added_files(struct PathInfo* old_path_info, struct PathInfo* ne
       if (!found) {
         struct PathInfo* current_path_info = (struct PathInfo*)malloc(sizeof(struct PathInfo));
         current_path_info->path = strdup(new_current->path);
+        current_path_info->dest_path = strdup(new_current->dest_path);
         current_path_info->info = new_current->info;
         current_path_info->next_path = NULL;
 
@@ -276,7 +274,6 @@ struct PathInfo* added_files(struct PathInfo* old_path_info, struct PathInfo* ne
 }
 
 struct PathInfo* deleted_files(struct PathInfo* old_path_info, struct PathInfo* new_path_info) {
-  // Deleted files are the files that are in the old path info but not in the new path info
   struct PathInfo* deleted_files = NULL;
 
   struct PathInfo* old_current = old_path_info;
@@ -295,6 +292,7 @@ struct PathInfo* deleted_files(struct PathInfo* old_path_info, struct PathInfo* 
     if (!found) {
       struct PathInfo* current_path_info = (struct PathInfo*)malloc(sizeof(struct PathInfo));
       current_path_info->path = strdup(old_current->path);
+      current_path_info->dest_path = strdup(new_current->dest_path);
       current_path_info->info = old_current->info;
       current_path_info->next_path = NULL;
 

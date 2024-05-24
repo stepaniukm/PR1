@@ -1,7 +1,6 @@
 #include <signal.h>
 #include <sys/signal.h>
 #include <sys/syslog.h>
-#include <sys/types.h>
 #include <sys/stat.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -36,66 +35,66 @@ void sigusr2_handler(int sig) {
 }
 
 int main(int argc, char *argv[]) {
-  // pid_t pid, sid;
-  // pid = fork();
-  // if (pid < 0) {
-  //   perror("Could not fork!");
-  //   exit(EXIT_FAILURE);
-  // }
+  openlog("project-watcher", LOG_CONS | LOG_PID, LOG_DAEMON);
+  syslog(LOG_ERR, "Project watcher started");
+  pid_t pid, sid;
+  pid = fork();
+  if (pid < 0) {
+    perror("Could not fork!");
+    exit(EXIT_FAILURE);
+  }
 
-  // if (pid > 0) {
-  //   exit(EXIT_SUCCESS);
-  // }
+  if (pid > 0) {
+    exit(EXIT_SUCCESS);
+  }
 
-  // umask(0);
-  // openlog("my-watch", LOG_CONS | LOG_PID, LOG_DAEMON);
+  umask(0);
 
-  // sid = setsid();
-  // if (sid < 0) {
-  //   syslog(LOG_ERR, "Couldn't create sid for child");
-  //   exit(EXIT_FAILURE);
-  // }
-  // printf("SID: %d", sid);
+  sid = setsid();
+  if (sid < 0) {
+    printf("Couldn't create sid for child");
+    exit(EXIT_FAILURE);
+  }
 
-  // if ((chdir("/")) < 0) {
-  //   syslog(LOG_ERR, "Couldn't change directory to /");
-  //   exit(EXIT_FAILURE);
-  // }
+  if ((chdir("/")) < 0) {
+    printf("Couldn't change directory to /");
+    exit(EXIT_FAILURE);
+  }
 
   struct Args *args = malloc(sizeof(struct Args));
   parse_args(argc, argv, args);
 
-  // close(STDIN_FILENO);
-  // close(STDOUT_FILENO);
-  // close(STDERR_FILENO);
+  close(STDIN_FILENO);
+  close(STDOUT_FILENO);
+  close(STDERR_FILENO);
 
   signal(SIGINT, sigint_handler);
   signal(SIGUSR1, sigusr1_handler);
   signal(SIGUSR2, sigusr2_handler);
 
   while (keep_going == 1) {
-    printf("RUNNING\n");
+    syslog(LOG_INFO, "RUNNING\n");
     struct PathInfo* previous_path_info = whole_path_info;
 
-    whole_path_info = read_dir(args->source, args->recursive);
+    whole_path_info = read_dir(args->source, args->destination,  args->recursive);
     struct PathInfo* changed = changed_files(previous_path_info, whole_path_info);
     struct PathInfo* added = added_files(previous_path_info, whole_path_info);
     struct PathInfo* deleted = deleted_files(previous_path_info, whole_path_info);
 
     if (changed != NULL) {
-      printf("Changed files:\n");
+      syslog(LOG_INFO, "Changed files:\n");
       print_path_info(changed);
       write_dir(args->source, args->destination, changed);
     }
 
     if (added != NULL) {
-      printf("Added files:\n");
+      syslog(LOG_INFO, "Added files:\n");
       print_path_info(added);
       write_dir(args->source, args->destination, added);
     }
 
     if (deleted != NULL) {
-      printf("Deleted files:\n");
+      syslog(LOG_INFO, "Deleted files:\n");
       print_path_info(deleted);
     }
 
@@ -108,6 +107,8 @@ int main(int argc, char *argv[]) {
     }
     should_wake = 0;
   }
+
+  closelog();
 
   exit(EXIT_SUCCESS);
 }
