@@ -5,6 +5,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
+#include <errno.h>
+#include <string.h>
 #include "parse_args.h"
 #include "read_dir.h"
 
@@ -34,43 +36,49 @@ void sigusr2_handler(int sig) {
   print_path_info(whole_path_info);
 }
 
+void sigabort_handler(int sig) {
+  printf("\nSIGABORT\n");
+  perror(strerror(errno));
+}
+
 int main(int argc, char *argv[]) {
-  openlog("project-watcher", LOG_CONS | LOG_PID, LOG_DAEMON);
-  syslog(LOG_ERR, "Project watcher started");
-  pid_t pid, sid;
-  pid = fork();
-  if (pid < 0) {
-    perror("Could not fork!");
-    exit(EXIT_FAILURE);
-  }
-
-  if (pid > 0) {
-    exit(EXIT_SUCCESS);
-  }
-
-  umask(0);
-
-  sid = setsid();
-  if (sid < 0) {
-    printf("Couldn't create sid for child");
-    exit(EXIT_FAILURE);
-  }
-
-  if ((chdir("/")) < 0) {
-    printf("Couldn't change directory to /");
-    exit(EXIT_FAILURE);
-  }
-
   struct Args *args = malloc(sizeof(struct Args));
   parse_args(argc, argv, args);
 
-  close(STDIN_FILENO);
-  close(STDOUT_FILENO);
-  close(STDERR_FILENO);
+  openlog("ProjectWatcher", LOG_CONS | LOG_PID, LOG_DAEMON);
+  syslog(LOG_ERR, "Project watcher started!");
+  // pid_t pid, sid;
+  // pid = fork();
+  // if (pid < 0) {
+  //   syslog(LOG_ERR, "Could not fork!");
+  //   exit(EXIT_FAILURE);
+  // }
+
+  // if (pid > 0) {
+  //   exit(EXIT_SUCCESS);
+  // }
+
+  // umask(0);
+
+  // sid = setsid();
+  // if (sid < 0) {
+  //   syslog(LOG_ERR, "Couldn't create sid for child");
+  //   exit(EXIT_FAILURE);
+  // }
+
+  // if ((chdir("/")) < 0) {
+  //   syslog(LOG_ERR, "Couldn't change directory to /");
+  //   exit(EXIT_FAILURE);
+  // }
+
+  // close(STDIN_FILENO);
+  // close(STDOUT_FILENO);
+  // close(STDERR_FILENO);
 
   signal(SIGINT, sigint_handler);
   signal(SIGUSR1, sigusr1_handler);
   signal(SIGUSR2, sigusr2_handler);
+  signal(SIGABRT, sigabort_handler);
 
   while (keep_going == 1) {
     syslog(LOG_INFO, "RUNNING\n");
@@ -80,6 +88,7 @@ int main(int argc, char *argv[]) {
     struct PathInfo* changed = changed_files(previous_path_info, whole_path_info);
     struct PathInfo* added = added_files(previous_path_info, whole_path_info);
     struct PathInfo* deleted = deleted_files(previous_path_info, whole_path_info);
+    syslog(LOG_INFO, "READ DIR");
 
     if (changed != NULL) {
       syslog(LOG_INFO, "Changed files:\n");
@@ -109,6 +118,5 @@ int main(int argc, char *argv[]) {
   }
 
   closelog();
-
   exit(EXIT_SUCCESS);
 }

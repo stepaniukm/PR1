@@ -53,12 +53,14 @@ int mkdir_p(const char *path) {
         if (*p == '/') {
             *p = 0;
             if (mkdir(tmp, S_IRWXU) != 0 && errno != EEXIST) {
+                syslog(LOG_ERR, "Problem with mkdir");
                 return -1;
             }
             *p = '/';
         }
     }
     if (mkdir(tmp, S_IRWXU) != 0 && errno != EEXIST) {
+        syslog(LOG_ERR, "Problem with mkdri");
         return -1;
     }
     return 0;
@@ -67,7 +69,7 @@ int mkdir_p(const char *path) {
 int open_file_in_nested_dir(char *path, int flags) {
     char *dir_path = strdup(path);
     if (!dir_path) {
-        perror("strdup");
+        syslog(LOG_ERR, "No dir path");
         return -1;
     }
 
@@ -75,7 +77,7 @@ int open_file_in_nested_dir(char *path, int flags) {
     if (last_slash != NULL) {
         *last_slash = '\0';
         if (mkdir_p(dir_path) == -1) {
-            perror("mkdir_p");
+            syslog(LOG_ERR, "Problem with mkdir");
             free(dir_path);
             return -1;
         }
@@ -95,7 +97,7 @@ void write_dir(char* source_base, char* dest_base, struct PathInfo* current_path
 
     // Send file doesn't work on MacOS
     if (fcopyfile(source, dest, 0, COPYFILE_ALL) == -1) {
-        perror("fcopyfile");
+        syslog(LOG_ERR, "Problem with fcopyfile");
     }
 
     close(source);
@@ -130,6 +132,11 @@ struct PathInfo* read_dir(char* path, char* destination_path, int recursive) {
   }
 
   DIR* dir = opendir(dir_path);
+
+  if (dir == NULL) {
+    syslog(LOG_ERR, "Couldn't open directory");
+    return NULL;
+  }
 
   struct dirent* entry;
   while ((entry = readdir(dir)) != NULL) {
