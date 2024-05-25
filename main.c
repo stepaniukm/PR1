@@ -36,70 +36,64 @@ void sigusr2_handler(int sig) {
   print_path_info(whole_path_info);
 }
 
-void sigabort_handler(int sig) {
-  printf("\nSIGABORT\n");
-  perror(strerror(errno));
-}
-
 int main(int argc, char *argv[]) {
   struct Args *args = malloc(sizeof(struct Args));
   parse_args(argc, argv, args);
 
   openlog("ProjectWatcher", LOG_CONS | LOG_PID, LOG_DAEMON);
   syslog(LOG_ERR, "Project watcher started!");
-  // pid_t pid, sid;
-  // pid = fork();
-  // if (pid < 0) {
-  //   syslog(LOG_ERR, "Could not fork!");
-  //   exit(EXIT_FAILURE);
-  // }
+  pid_t pid, sid;
+  pid = fork();
+  if (pid < 0) {
+    syslog(LOG_ERR, "Could not fork!");
+    exit(EXIT_FAILURE);
+  }
 
-  // if (pid > 0) {
-  //   exit(EXIT_SUCCESS);
-  // }
+  if (pid > 0) {
+    exit(EXIT_SUCCESS);
+  }
 
-  // umask(0);
+  umask(0);
 
-  // sid = setsid();
-  // if (sid < 0) {
-  //   syslog(LOG_ERR, "Couldn't create sid for child");
-  //   exit(EXIT_FAILURE);
-  // }
+  sid = setsid();
+  if (sid < 0) {
+    syslog(LOG_ERR, "Couldn't create sid for child");
+    exit(EXIT_FAILURE);
+  }
 
-  // if ((chdir("/")) < 0) {
-  //   syslog(LOG_ERR, "Couldn't change directory to /");
-  //   exit(EXIT_FAILURE);
-  // }
+  if ((chdir("/")) < 0) {
+    syslog(LOG_ERR, "Couldn't change directory to /");
+    exit(EXIT_FAILURE);
+  }
 
-  // close(STDIN_FILENO);
-  // close(STDOUT_FILENO);
-  // close(STDERR_FILENO);
+  close(STDIN_FILENO);
+  close(STDOUT_FILENO);
+  close(STDERR_FILENO);
 
   signal(SIGINT, sigint_handler);
   signal(SIGUSR1, sigusr1_handler);
   signal(SIGUSR2, sigusr2_handler);
-  signal(SIGABRT, sigabort_handler);
 
   while (keep_going == 1) {
+    syslog(LOG_INFO, "%s %s", args->source, args->destination);
     syslog(LOG_INFO, "RUNNING\n");
     struct PathInfo* previous_path_info = whole_path_info;
 
     whole_path_info = read_dir(args->source, args->destination,  args->recursive);
     struct PathInfo* changed = changed_files(previous_path_info, whole_path_info);
-    struct PathInfo* added = added_files(previous_path_info, whole_path_info);
-    struct PathInfo* deleted = deleted_files(previous_path_info, whole_path_info);
+    struct PathInfo* added = diff_files(previous_path_info, whole_path_info);
+    struct PathInfo* deleted = diff_files(whole_path_info, previous_path_info);
     syslog(LOG_INFO, "READ DIR");
 
     if (changed != NULL) {
       syslog(LOG_INFO, "Changed files:\n");
       print_path_info(changed);
-      write_dir(args->source, args->destination, changed);
+      write_dir(changed);
     }
 
     if (added != NULL) {
       syslog(LOG_INFO, "Added files:\n");
       print_path_info(added);
-      write_dir(args->source, args->destination, added);
     }
 
     if (deleted != NULL) {

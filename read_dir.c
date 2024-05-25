@@ -87,7 +87,19 @@ int open_file_in_nested_dir(char *path, int flags) {
     return open(path, flags);
 }
 
-void write_dir(char* source_base, char* dest_base, struct PathInfo* current_path_info) {
+void delete_dir(struct PathInfo* deleted_path_info) {
+  struct PathInfo* current = deleted_path_info;
+
+  while(current!=NULL) {
+    syslog(LOG_ERR, "%s", current->dest_path);
+    // if (unlink(current->dest_path) != 0) {
+    //   syslog(LOG_ERR, "Problem with remove");
+    // }
+    current = current->next_path;
+  }
+};
+
+void write_dir(struct PathInfo* current_path_info) {
   struct PathInfo* current = current_path_info;
 
   while(current!=NULL) {
@@ -95,7 +107,7 @@ void write_dir(char* source_base, char* dest_base, struct PathInfo* current_path
     int dest = open_file_in_nested_dir(strdup(current->dest_path), O_WRONLY | O_CREAT);
     chmod(current->dest_path, 0x777);
 
-    // Send file doesn't work on MacOS
+    // Sendfile doesn't work on MacOS and copy_file_range is not defined
     if (fcopyfile(source, dest, 0, COPYFILE_ALL) == -1) {
         syslog(LOG_ERR, "Problem with fcopyfile");
     }
@@ -131,6 +143,7 @@ struct PathInfo* read_dir(char* path, char* destination_path, int recursive) {
       ++dest_path_len;
   }
 
+  syslog(LOG_INFO, "OPENING %s\n", dir_path);
   DIR* dir = opendir(dir_path);
 
   if (dir == NULL) {
@@ -245,8 +258,8 @@ struct PathInfo* changed_files(struct PathInfo* old_path_info, struct PathInfo* 
     return changed_files;
 }
 
-struct PathInfo* added_files(struct PathInfo* old_path_info, struct PathInfo* new_path_info) {
-    struct PathInfo* added_files = NULL;
+struct PathInfo* diff_files(struct PathInfo* old_path_info, struct PathInfo* new_path_info) {
+    struct PathInfo* new_files = NULL;
 
     struct PathInfo* new_current = new_path_info;
     while (new_current != NULL) {
@@ -267,51 +280,15 @@ struct PathInfo* added_files(struct PathInfo* old_path_info, struct PathInfo* ne
         current_path_info->info = new_current->info;
         current_path_info->next_path = NULL;
 
-        if (added_files == NULL) {
-          added_files = current_path_info;
+        if (new_files == NULL) {
+          new_files = current_path_info;
         } else {
-          append_to_path_info(added_files, current_path_info);
+          append_to_path_info(new_files, current_path_info);
         }
       }
 
       new_current = new_current->next_path;
     }
 
-    return added_files;
-}
-
-struct PathInfo* deleted_files(struct PathInfo* old_path_info, struct PathInfo* new_path_info) {
-  struct PathInfo* deleted_files = NULL;
-
-  struct PathInfo* old_current = old_path_info;
-
-  while (old_current != NULL) {
-    struct PathInfo* new_current = new_path_info;
-    int found = 0;
-    while (new_current != NULL) {
-      if (strcmp(old_current->path, new_current->path) == 0) {
-        found = 1;
-        break;
-      }
-      new_current = new_current->next_path;
-    }
-
-    if (!found) {
-      struct PathInfo* current_path_info = (struct PathInfo*)malloc(sizeof(struct PathInfo));
-      current_path_info->path = strdup(old_current->path);
-      current_path_info->dest_path = strdup(new_current->dest_path);
-      current_path_info->info = old_current->info;
-      current_path_info->next_path = NULL;
-
-      if (deleted_files == NULL) {
-        deleted_files = current_path_info;
-      } else {
-        append_to_path_info(deleted_files, current_path_info);
-      }
-    }
-
-    old_current = old_current->next_path;
-  }
-
-  return deleted_files;
+    return new_files;
 }
