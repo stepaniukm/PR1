@@ -61,10 +61,10 @@ int main(int argc, char *argv[]) {
     exit(EXIT_FAILURE);
   }
 
-  if ((chdir("/")) < 0) {
-    syslog(LOG_ERR, "Couldn't change directory to /");
-    exit(EXIT_FAILURE);
-  }
+  // if ((chdir("/")) < 0) {
+  //   syslog(LOG_ERR, "Couldn't change directory to /");
+  //   exit(EXIT_FAILURE);
+  // }
 
   close(STDIN_FILENO);
   close(STDOUT_FILENO);
@@ -75,8 +75,6 @@ int main(int argc, char *argv[]) {
   signal(SIGUSR2, sigusr2_handler);
 
   while (keep_going == 1) {
-    syslog(LOG_INFO, "%s %s", args->source, args->destination);
-    syslog(LOG_INFO, "RUNNING\n");
     struct PathInfo* previous_path_info = whole_path_info;
 
     whole_path_info = read_dir(args->source, args->destination,  args->recursive);

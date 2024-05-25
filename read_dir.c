@@ -143,7 +143,6 @@ struct PathInfo* read_dir(char* path, char* destination_path, int recursive) {
       ++dest_path_len;
   }
 
-  syslog(LOG_INFO, "OPENING %s\n", dir_path);
   DIR* dir = opendir(dir_path);
 
   if (dir == NULL) {

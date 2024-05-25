@@ -22,13 +22,13 @@ struct Args* parse_args(int argc, char* argv[], struct Args* args) {
   args->source = strdup(argv[1]);
   args->destination = strdup(argv[2]);
 
-  char* temp = strdup(cwr);
-  strcat(temp, args->source);
-  args->source = temp;
+  // char* temp = strdup(cwr);
+  // concatenateStrings(temp, strdup(args->source));
+  // args->source = temp;
 
-  char* temp2 = strdup(cwr);
-  strcat(temp2, args->destination);
-  args->destination = temp2;
+  // char* temp2 = strdup(cwr);
+  // concatenateStrings(temp2, strdup(args->destination));
+  // args->destination = temp2;
 
   args->recursive = 0;
   args->every_seconds = 5 * ONE_MINUTE;
